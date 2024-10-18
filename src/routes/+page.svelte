@@ -13,6 +13,11 @@
         type UiWalletAccount,
         type UiWallet,
     } from "@wallet-standard/ui";
+    import { getTransactionEncoder } from '@solana/transactions';
+    import { getAbortablePromise } from '@solana/promises';
+    // import { SignatureBytes } from '@solana/keys';
+    type SignatureBytes = Uint8Array & { readonly __brand: unique symbol };
+
     import {
         StandardConnect,
         StandardEvents,
@@ -135,11 +140,11 @@
         await initSolanaWallets();
     });
 
-    function copyAddress(address: string) {
-        navigator.clipboard.writeText(address);
+    function copyAddress(address?: string) {
+        if (address ) navigator.clipboard.writeText(address);
     }
     async function initSolanaWallets() {
-        if (installedUiWallets.length > 0) return;
+        // if (installedUiWallets.length > 0) return;
         // const installedWallets = getWallets();
         const installedWallets = walletRegistry.get();
         console.log("wallets", installedWallets);
@@ -156,6 +161,9 @@
             // switch account in browser wallet plugin will trigger this event
             wallet.features[StandardEvents].on("change", ({ accounts }) => {
                 account = accounts[0];
+                // const newWallet = {...installedUiWallets[0], accounts}
+                // // installedUiWallets[0].accounts = accounts;
+                // installedUiWallets = [newWallet];
             });
 
             console.log("solana uiWallet", uiWallet); // not autoConnect so first load will not have account
@@ -185,6 +193,7 @@
 
     async function handleTransfer() {
         // ensure account exists
+        console.log('handle transfer', account);
         if (!account) return;
 
         const receiver = address('FDjn87xPsLiXwakFygi4uEdet568o7A22UboxrUCwu7A');
@@ -197,31 +206,57 @@
             .send();
 
 
+        console.log('uiWallets', installedUiWallets);
         const signAndSendTransactionFeature = getWalletAccountFeature(
             installedUiWallets[0].accounts[0],
             SolanaSignAndSendTransaction,
         ) as SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction];
-        const sender = address<string>(account.address);
+        // const sender = address<string>(account.address);
             // signAndSendTransactionFeature.signAndSendTransaction
 
+        const transactionSendingSigner = {
+            address: address(account.address),
+            async signAndSendTransactions(transactions, config = {}) {
+                const { abortSignal, ...options } = config;
+                abortSignal?.throwIfAborted();
+                const transactionEncoder = getTransactionEncoder();
+                if (transactions.length > 1) {
+                    throw new Error('should only have one transaction');
+                }
+                if (transactions.length === 0) {
+                    return [];
+                }
+                const [transaction] = transactions;
+                const wireTransactionBytes = transactionEncoder.encode(transaction);
+                const inputWithOptions = {
+                    ...options,
+                    transaction: wireTransactionBytes as Uint8Array,
+                };
+                console.log('transaction', transaction);
+                const { signature } = await getAbortablePromise(signAndSendTransactionFeature.signAndSendTransaction(inputWithOptions), abortSignal);
+                return Object.freeze([signature as SignatureBytes]);
+                console.log('signature', signature);
+            },
+        };
         const message = pipe(
             createTransactionMessage({ version: 0 }),
-            m => setTransactionMessageFeePayer(sender, m),
+            m => setTransactionMessageFeePayerSigner(transactionSendingSigner, m),
             m => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
             m =>
                 appendTransactionMessageInstruction(
                     getTransferSolInstruction({
                         amount: lamports(100_000_000n),
                         destination: receiver,
-                        source: createNoopSigner(sender),
+                        source: transactionSendingSigner,
                     }),
                     m,
                 ),
         );
-        const myTx = compileTransaction(message);
+        // const myTx = compileTransaction(message);
 
         // 为啥会报错呢
-        const signature = await signAndSendTransactionFeature.signAndSendTransaction({chain: 'solana:devnet', account, transaction: new Uint8Array(myTx.messageBytes)});
+        const signature = await signAndSendTransactionMessageWithSigners(message);
+        // const signature = await signAndSendTransactionFeature.signAndSendTransaction({chain: 'solana:devnet', account, transaction: new Uint8Array(myTx.messageBytes)});
         console.log("signature", signature);
     }
 </script>
