@@ -9,6 +9,7 @@
     } from "@wallet-standard/ui-registry";
     import {
         getWalletFeature,
+        getWalletAccountFeature,
         type UiWalletAccount,
         type UiWallet,
     } from "@wallet-standard/ui";
@@ -17,7 +18,110 @@
         StandardEvents,
         type StandardConnectFeature,
     } from "@wallet-standard/features";
-    import type { Wallet } from "@wallet-standard/base";
+    import type { IdentifierString, WalletAccount } from "@wallet-standard/base";
+    import {
+        address,
+        appendTransactionMessageInstruction,
+        assertIsTransactionMessageWithSingleSendingSigner,
+        createTransactionMessage,
+        getBase58Decoder,
+        lamports,
+        pipe,
+        setTransactionMessageFeePayerSigner,
+        setTransactionMessageFeePayer,
+        setTransactionMessageLifetimeUsingBlockhash,
+        signAndSendTransactionMessageWithSigners,
+        createSolanaRpc, createSolanaRpcSubscriptions, devnet,
+        createNoopSigner,
+        compileTransaction,
+    } from "@solana/web3.js";
+
+    import { getTransferSolInstruction } from "@solana-program/system";
+
+    // defined in: https://github.com/anza-xyz/wallet-standard/blob/master/packages/core/features/src/signAndSendTransaction.ts#L10C1-L11C1
+    const SolanaSignAndSendTransaction = 'solana:signAndSendTransaction';
+
+    type SolanaSignAndSendTransactionVersion = '1.0.0';
+
+    type SolanaTransactionVersion = 'legacy' | 0;
+
+    type SolanaTransactionCommitment = 'processed' | 'confirmed' | 'finalized';
+
+    type SolanaSignTransactionOptions = {
+        /** Preflight commitment level. */
+        readonly preflightCommitment?: SolanaTransactionCommitment;
+
+        /** The minimum slot that the request can be evaluated at. */
+        readonly minContextSlot?: number;
+    };
+
+    interface SolanaSignTransactionInput {
+        /** Account to use. */
+        readonly account: WalletAccount;
+
+        /** Serialized transaction, as raw bytes. */
+        readonly transaction: Uint8Array;
+
+        /** Chain to use. */
+        readonly chain?: IdentifierString;
+
+        /** TODO: docs */
+        readonly options?: SolanaSignTransactionOptions;
+    }
+
+    type SolanaSignAndSendTransactionMode = 'parallel' | 'serial';
+
+    type SolanaSignAndSendTransactionOptions = SolanaSignTransactionOptions & {
+        /** Mode for signing and sending transactions. */
+        readonly mode?: SolanaSignAndSendTransactionMode;
+
+        /** Desired commitment level. If provided, confirm the transaction after sending. */
+        readonly commitment?: SolanaTransactionCommitment;
+
+        /** Disable transaction verification at the RPC. */
+        readonly skipPreflight?: boolean;
+
+        /** Maximum number of times for the RPC node to retry sending the transaction to the leader. */
+        readonly maxRetries?: number;
+    };
+
+
+    interface SolanaSignAndSendTransactionInput extends SolanaSignTransactionInput {
+        /** Chain to use. */
+        readonly chain: IdentifierString;
+
+        /** TODO: docs */
+        readonly options?: SolanaSignAndSendTransactionOptions;
+    }
+
+    interface SolanaSignAndSendTransactionOutput {
+        /** Transaction signature, as raw bytes. */
+        readonly signature: Uint8Array;
+    }
+
+    type SolanaSignAndSendTransactionMethod = (
+        ...inputs: readonly SolanaSignAndSendTransactionInput[]
+    ) => Promise<readonly SolanaSignAndSendTransactionOutput[]>;
+
+    type SolanaSignAndSendTransactionFeature = {
+        /** Name of the feature. */
+        readonly [SolanaSignAndSendTransaction]: {
+            /** Version of the feature API. */
+            readonly version: SolanaSignAndSendTransactionVersion;
+
+            /** TODO: docs */
+            readonly supportedTransactionVersions: readonly SolanaTransactionVersion[];
+
+            /**
+             * Sign transactions using the account's secret key and send them to the chain.
+             *
+             * @param inputs Inputs for signing and sending transactions.
+             *
+             * @return Outputs of signing and sending transactions.
+             */
+            readonly signAndSendTransaction: SolanaSignAndSendTransactionMethod;
+        };
+    };
 
     let account: UiWalletAccount | null = null;
 
@@ -27,6 +131,7 @@
 
     onMount(async () => {
         // get connected account
+        console.log('onmount');
         await initSolanaWallets();
     });
 
@@ -81,7 +186,43 @@
     async function handleTransfer() {
         // ensure account exists
         if (!account) return;
-        
+
+        const receiver = address('FDjn87xPsLiXwakFygi4uEdet568o7A22UboxrUCwu7A');
+
+        const rpc = createSolanaRpc(devnet('https://api.devnet.solana.com'));
+        const rpcSubscriptions = createSolanaRpcSubscriptions(devnet('wss://api.devnet.solana.com'));
+
+        const { value: latestBlockhash } = await rpc
+            .getLatestBlockhash({ commitment: 'confirmed' })
+            .send();
+
+
+        const signAndSendTransactionFeature = getWalletAccountFeature(
+            installedUiWallets[0].accounts[0],
+            SolanaSignAndSendTransaction,
+        ) as SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction];
+        const sender = address<string>(account.address);
+            // signAndSendTransactionFeature.signAndSendTransaction
+
+        const message = pipe(
+            createTransactionMessage({ version: 0 }),
+            m => setTransactionMessageFeePayer(sender, m),
+            m => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+            m =>
+                appendTransactionMessageInstruction(
+                    getTransferSolInstruction({
+                        amount: lamports(100_000_000n),
+                        destination: receiver,
+                        source: createNoopSigner(sender),
+                    }),
+                    m,
+                ),
+        );
+        const myTx = compileTransaction(message);
+
+        // 为啥会报错呢
+        const signature = await signAndSendTransactionFeature.signAndSendTransaction({chain: 'solana:devnet', account, transaction: new Uint8Array(myTx.messageBytes)});
+        console.log("signature", signature);
     }
 </script>
 
@@ -121,14 +262,17 @@
     {/if}
 
     {#if account}
-    <div class="card bg-base-100 w-full shadow-xl">
-        <div class="card-body">
-            <h2 class="card-title">Transfer 0.1 SOL on devnet</h2>
-            <p>receiver: FDjn87xPsLiXwakFygi4uEdet568o7A22UboxrUCwu7A</p>
-            <div class="card-actions justify-end">
-                <button on:click={() => handleTransfer()} class="btn btn-primary">Transfer</button>
+        <div class="card bg-base-100 w-full shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title">Transfer 0.1 SOL on devnet</h2>
+                <p>receiver: FDjn87xPsLiXwakFygi4uEdet568o7A22UboxrUCwu7A</p>
+                <div class="card-actions justify-end">
+                    <button
+                        on:click={() => handleTransfer()}
+                        class="btn btn-primary">Transfer</button
+                    >
+                </div>
             </div>
         </div>
-    </div>
     {/if}
 </div>
