@@ -20,6 +20,7 @@
 
     import {
         StandardConnect,
+        StandardDisconnect,
         StandardEvents,
         type StandardConnectFeature,
     } from "@wallet-standard/features";
@@ -160,14 +161,20 @@
 
             // switch account in browser wallet plugin will trigger this event
             wallet.features[StandardEvents].on("change", ({ accounts }) => {
+                console.log('on change', accounts, typeof accounts[0]);
                 account = accounts[0];
+                // account = getOrCreateUiWalletAccountForStandardWalletAccount_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.bind(
+                //     null,
+                //     accounts[0]
+                // );
+                console.log('account', account, typeof account);
                 // const newWallet = {...installedUiWallets[0], accounts}
                 // // installedUiWallets[0].accounts = accounts;
                 // installedUiWallets = [newWallet];
             });
 
             console.log("solana uiWallet", uiWallet); // not autoConnect so first load will not have account
-            await connectWallet(uiWallet);
+            // await connectWallet(uiWallet);
             installedUiWallets = [...installedUiWallets, uiWallet];
             if (uiWallet.accounts.length > 0) {
                 account = uiWallet.accounts[0];
@@ -191,6 +198,16 @@
         await accountsPromise;
     }
 
+    async function disconnectWallet() {
+        if (!account) return;
+        const disconnectFeature = getWalletFeature(
+            installedUiWallets[0],
+            StandardDisconnect,
+        ) as StandardConnectFeature[typeof StandardDisconnect];
+        await disconnectFeature.disconnect();
+        account = null;
+    }
+
     async function handleTransfer() {
         // ensure account exists
         console.log('handle transfer', account);
@@ -206,9 +223,9 @@
             .send();
 
 
-        console.log('uiWallets', installedUiWallets);
+        console.log('uiWallets & account', installedUiWallets, account);
         const signAndSendTransactionFeature = getWalletAccountFeature(
-            installedUiWallets[0].accounts[0],
+            account,
             SolanaSignAndSendTransaction,
         ) as SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction];
         console.log('signAndSendTransactionFeature', signAndSendTransactionFeature);
@@ -274,6 +291,11 @@
                 <li>
                     <button on:click={() => copyAddress(account?.address)}
                         >Copy Address</button
+                    >
+                </li>
+                <li>
+                    <button on:click={() => disconnectWallet()}
+                        >Disconnect</button
                     >
                 </li>
             </ul>
