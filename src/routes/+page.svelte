@@ -15,8 +15,8 @@
     } from "@wallet-standard/ui";
     import { getTransactionEncoder } from '@solana/transactions';
     import { getAbortablePromise } from '@solana/promises';
-    // import { SignatureBytes } from '@solana/keys';
-    type SignatureBytes = Uint8Array & { readonly __brand: unique symbol };
+    import { type SignatureBytes } from '@solana/keys';
+    // type SignatureBytes = Uint8Array & { readonly __brand: unique symbol };
 
     import {
         StandardConnect,
@@ -211,8 +211,7 @@
             installedUiWallets[0].accounts[0],
             SolanaSignAndSendTransaction,
         ) as SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction];
-        // const sender = address<string>(account.address);
-            // signAndSendTransactionFeature.signAndSendTransaction
+        console.log('signAndSendTransactionFeature', signAndSendTransactionFeature);
 
         const transactionSendingSigner = {
             address: address(account.address),
@@ -231,11 +230,13 @@
                 const inputWithOptions = {
                     ...options,
                     transaction: wireTransactionBytes as Uint8Array,
+                    chain: 'solana:devnet' as IdentifierString,
+                    account: account,
                 };
                 console.log('transaction', transaction);
-                const { signature } = await getAbortablePromise(signAndSendTransactionFeature.signAndSendTransaction(inputWithOptions), abortSignal);
-                return Object.freeze([signature as SignatureBytes]);
+                const [{ signature }] = await getAbortablePromise(signAndSendTransactionFeature.signAndSendTransaction(inputWithOptions), abortSignal);
                 console.log('signature', signature);
+                return Object.freeze([signature as SignatureBytes]);
             },
         };
         const message = pipe(
