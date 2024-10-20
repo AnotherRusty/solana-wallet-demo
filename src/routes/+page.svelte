@@ -23,8 +23,10 @@
         StandardDisconnect,
         StandardEvents,
         type StandardConnectFeature,
+        type StandardDisconnectFeature,
+        type StandardEventsFeature,
     } from "@wallet-standard/features";
-    import type { IdentifierString, WalletAccount } from "@wallet-standard/base";
+    import type { IdentifierString, WalletAccount, Wallet, WalletWithFeatures } from "@wallet-standard/base";
     import {
         address,
         appendTransactionMessageInstruction,
@@ -131,9 +133,7 @@
 
     let account: UiWalletAccount | null = null;
 
-    let installedUiWallets: UiWallet[] = [];
-
-    const walletRegistry = getWallets();
+    // let installedUiWallets: UiWallet[] = [];
 
     onMount(async () => {
         // get connected account
@@ -141,15 +141,58 @@
         await initSolanaWallets();
     });
 
+    const { get, on } = getWallets();
+
+    $: outputWallets = get();
+
+    // let installedUiWallets: UiWallet[] = [];
+    $: installedUiWallets = outputWallets.map(wallet => getOrCreateUiWalletForStandardWallet_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(wallet));
+
+    const walletsToChangeListenerDisposeFn = new Map<Wallet, () => void>();
+
+    $: disposeRegisterListener = on('register', (...wallets) => {
+        wallets.filter(walletHasStandardEventsFeature).map(subscribeToWalletEvents);
+    });
+
+    $: disposeUnregisterListener = on('unregister', (...wallets) => {
+        wallets.forEach((wallet) => {
+            const dispose = walletsToChangeListenerDisposeFn.get(wallet);
+            if (!dispose) {
+                // Not all wallets will have a corresponding dispose function because they
+                // might not support `standard:events`.
+                return;
+            }
+            walletsToChangeListenerDisposeFn.delete(wallet);
+            dispose();
+        });
+    });
+
+    $: {
+        disposeRegisterListener();
+        disposeUnregisterListener();
+        walletsToChangeListenerDisposeFn.forEach((dispose) => dispose());
+        walletsToChangeListenerDisposeFn.clear();
+    }
+
+    function walletHasStandardEventsFeature(wallet: Wallet): wallet is WalletWithFeatures<StandardEventsFeature> {
+        return StandardEvents in wallet.features;
+    }
+    function subscribeToWalletEvents(wallet: WalletWithFeatures<StandardEventsFeature>): () => void {
+        const dispose = wallet.features[StandardEvents].on('change', () => {
+            outputWallets = get();
+        });
+        walletsToChangeListenerDisposeFn.set(wallet, dispose);
+        return dispose;
+    }
+
+    
+
     function copyAddress(address?: string) {
         if (address ) navigator.clipboard.writeText(address);
     }
     async function initSolanaWallets() {
         // if (installedUiWallets.length > 0) return;
-        // const installedWallets = getWallets();
-        const installedWallets = walletRegistry.get();
-        console.log("wallets", installedWallets);
-        for (const wallet of installedWallets) {
+        for (const wallet of outputWallets) {
             const uiWallet =
                 getOrCreateUiWalletForStandardWallet_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(
                     wallet,
@@ -160,28 +203,30 @@
             }
 
             // switch account in browser wallet plugin will trigger this event
-            wallet.features[StandardEvents].on("change", ({ accounts }) => {
-                console.log('on change', accounts, typeof accounts[0]);
-                account = accounts[0];
-                // account = getOrCreateUiWalletAccountForStandardWalletAccount_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.bind(
-                //     null,
-                //     accounts[0]
-                // );
-                console.log('account', account, typeof account);
-                // const newWallet = {...installedUiWallets[0], accounts}
-                // // installedUiWallets[0].accounts = accounts;
-                // installedUiWallets = [newWallet];
-            });
+            // wallet.features[StandardEvents].on("change", ({ accounts }) => {
+            //     console.log('on change', accounts, typeof accounts[0]);
+            //     account = accounts[0];
+            //     // account = getOrCreateUiWalletAccountForStandardWalletAccount_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.bind(
+            //     //     null,
+            //     //     accounts[0]
+            //     // );
+            //     console.log('account', account, typeof account);
+            //     // const newWallet = {...installedUiWallets[0], accounts}
+            //     // // installedUiWallets[0].accounts = accounts;
+            //     // installedUiWallets = [newWallet];
+            // });
 
-            console.log("solana uiWallet", uiWallet); // not autoConnect so first load will not have account
-            // await connectWallet(uiWallet);
-            installedUiWallets = [...installedUiWallets, uiWallet];
-            if (uiWallet.accounts.length > 0) {
-                account = uiWallet.accounts[0];
-                break;
-            }
+            // console.log("solana uiWallet", uiWallet); // not autoConnect so first load will not have account
+            // // await connectWallet(uiWallet);
+            // installedUiWallets = [...installedUiWallets, uiWallet];
+            // if (uiWallet.accounts.length > 0) {
+            //     account = uiWallet.accounts[0];
+            //     break;
+            // }
         }
     }
+
+    let connectedWallet: UiWallet | null = null;
 
     async function connectWallet(wallet: UiWallet) {
         const connectFeature = getWalletFeature(
@@ -196,14 +241,15 @@
                 return accounts;
             });
         await accountsPromise;
+        connectedWallet = wallet;
     }
 
     async function disconnectWallet() {
-        if (!account) return;
+        if (!connectedWallet) return;
         const disconnectFeature = getWalletFeature(
-            installedUiWallets[0],
+            connectedWallet,
             StandardDisconnect,
-        ) as StandardConnectFeature[typeof StandardDisconnect];
+        ) as StandardDisconnectFeature[typeof StandardDisconnect];
         await disconnectFeature.disconnect();
         account = null;
     }
