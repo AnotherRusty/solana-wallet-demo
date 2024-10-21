@@ -56,15 +56,14 @@
         SolanaSignAndSendTransaction,
         type SolanaSignAndSendTransactionFeature,
     } from "@solana/wallet-standard-features";
+    import { onMount } from "svelte";
 
     const { get } = getWallets();
 
-    $: outputWallets = get();
+    $: outputWallets = get().filter(walletHasSignAndSendFeature);
 
     $: {
-        outputWallets
-            .filter(walletHasSignAndSendFeature)
-            .map(subscribeToWalletEvents);
+        outputWallets.map(subscribeToWalletEvents);
     }
 
     $: installedUiWallets = outputWallets.map((wallet) =>
@@ -92,8 +91,13 @@
                     ),
                 );
                 console.log("new Accounts", newAccounts);
-                if (newAccounts && newAccounts.length > 0)
+                if (newAccounts && newAccounts.length > 0) {
                     connectedWalletAccount = newAccounts[0];
+                    localStorage.setItem(
+                        STORAGE_KEY,
+                        `${wallet.name}:${newAccounts[0].address}`,
+                    );
+                }
                 return newAccounts;
             },
         );
@@ -104,7 +108,46 @@
         if (address) navigator.clipboard.writeText(address);
     }
 
-    let connectedWallet: UiWallet | null = null;
+    // localStorage cache, phantom:FDjn87xPsLiXwakFygi4uEdet568o7A22UboxrUCwu7A
+    const STORAGE_KEY = "solana-wallet-standard:selected-wallet-and-address";
+
+    onMount(() => {
+        initConnectedWallet();
+    });
+
+    function initConnectedWallet() {
+        const savedWalletNameAndAddress = localStorage.getItem(STORAGE_KEY);
+        if (!savedWalletNameAndAddress) return;
+
+        const [savedWalletName, savedAccountAddress] =
+            savedWalletNameAndAddress.split(":");
+        if (
+            !savedWalletNameAndAddress ||
+            typeof savedWalletNameAndAddress !== "string"
+        ) {
+            return;
+        }
+        console.log(
+            "found cached wallet",
+            savedWalletName,
+            savedAccountAddress,
+            installedUiWallets.length,
+        );
+
+        for (const wallet of installedUiWallets) {
+            if (wallet.name === savedWalletName) {
+                console.log("found cached wallet", wallet);
+                // TODO: localStorage cache doesn't work because wallet.accounts is []
+                for (const account of wallet.accounts) {
+                    if (account.address === savedAccountAddress) {
+                        connectedWalletAccount = account;
+                        console.log("found cached account", account);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     let connectedWalletAccount: UiWalletAccount | null = null;
 
@@ -147,7 +190,6 @@
             });
         const nextAccounts = await accountsPromise;
         console.log("next accounts", nextAccounts);
-        connectedWallet = uiWallet;
 
         // Try to choose the first never-before-seen account.
         for (const nextAccount of nextAccounts) {
@@ -158,6 +200,10 @@
             ) {
                 // onAccountSelect(nextAccount);
                 connectedWalletAccount = nextAccount;
+                localStorage.setItem(
+                    STORAGE_KEY,
+                    `${wallet.name}:${connectedWalletAccount.address}`,
+                );
                 console.log("compare accounts", connectedWalletAccount);
                 return;
             }
@@ -165,19 +211,33 @@
         if (nextAccounts.length > 0) {
             // onAccountSelect(nextAccounts[0]);
             connectedWalletAccount = nextAccounts[0];
+            localStorage.setItem(
+                STORAGE_KEY,
+                `${wallet.name}:${connectedWalletAccount.address}`,
+            );
             console.log("default accounts", connectedWalletAccount);
         }
-        // connectedWallet.accounts = newAccounts;
-        // console.log('connected wallet', connectedWallet.accounts)
     }
 
     async function disconnectWallet() {
-        if (!connectedWallet) return;
+        if (!connectedWalletAccount) return;
+        const a = getWalletForHandle_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(
+            connectedWalletAccount,
+        );
+        console.log("wallet from walletAccount", a);
+        const b =
+            getOrCreateUiWalletForStandardWallet_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(
+                a,
+            );
+        console.log("ui wallet from wallet", b);
+
         const disconnectFeature = getWalletFeature(
-            connectedWallet,
+            b,
             StandardDisconnect,
         ) as StandardDisconnectFeature[typeof StandardDisconnect];
         await disconnectFeature.disconnect();
+        connectedWalletAccount = null;
+        localStorage.removeItem(STORAGE_KEY);
     }
 
     async function handleTransfer() {
