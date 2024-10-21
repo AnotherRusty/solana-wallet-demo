@@ -11,6 +11,7 @@
 	},
 	"devDependencies": {
 		"@solana-program/system": "^0.5.3",
+		"@solana/wallet-standard-features": "^1.2.0",
 		"@solana/web3.js": "canary",
 		"@sveltejs/adapter-auto": "^3.0.0",
 		"@sveltejs/kit": "^2.0.0",
