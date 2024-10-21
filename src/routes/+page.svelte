@@ -132,16 +132,6 @@
         };
     };
 
-    let account: UiWalletAccount | null = null;
-
-    // let installedUiWallets: UiWallet[] = [];
-
-    // onMount(async () => {
-    //     // get connected account
-    //     console.log('onmount');
-    //     await initSolanaWallets();
-    // });
-
     const { get, on } = getWallets();
 
     $: outputWallets = get();
@@ -190,41 +180,6 @@
 
     function copyAddress(address?: string) {
         if (address ) navigator.clipboard.writeText(address);
-    }
-    async function initSolanaWallets() {
-        // if (installedUiWallets.length > 0) return;
-        for (const wallet of outputWallets) {
-            const uiWallet =
-                getOrCreateUiWalletForStandardWallet_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(
-                    wallet,
-                );
-            // const supportedUiWalletFeatures = getWalletFeature(uiWallet, StandardConnect);
-            if (!uiWallet.chains.includes("solana:devnet")) {
-                continue; // skip sui wallet or others
-            }
-
-            // switch account in browser wallet plugin will trigger this event
-            // wallet.features[StandardEvents].on("change", ({ accounts }) => {
-            //     console.log('on change', accounts, typeof accounts[0]);
-            //     account = accounts[0];
-            //     // account = getOrCreateUiWalletAccountForStandardWalletAccount_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.bind(
-            //     //     null,
-            //     //     accounts[0]
-            //     // );
-            //     console.log('account', account, typeof account);
-            //     // const newWallet = {...installedUiWallets[0], accounts}
-            //     // // installedUiWallets[0].accounts = accounts;
-            //     // installedUiWallets = [newWallet];
-            // });
-
-            // console.log("solana uiWallet", uiWallet); // not autoConnect so first load will not have account
-            // // await connectWallet(uiWallet);
-            // installedUiWallets = [...installedUiWallets, uiWallet];
-            // if (uiWallet.accounts.length > 0) {
-            //     account = uiWallet.accounts[0];
-            //     break;
-            // }
-        }
     }
 
     let connectedWallet: UiWallet | null = null;
@@ -289,12 +244,11 @@
             StandardDisconnect,
         ) as StandardDisconnectFeature[typeof StandardDisconnect];
         await disconnectFeature.disconnect();
-        account = null;
     }
 
     async function handleTransfer() {
         // ensure account exists
-        console.log('handle transfer', connectedWallet);
+        console.log('handle transfer', connectedWalletAccount);
         if (!connectedWalletAccount) return;
 
         const receiver = address('FDjn87xPsLiXwakFygi4uEdet568o7A22UboxrUCwu7A');
