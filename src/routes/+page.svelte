@@ -136,41 +136,80 @@
 
     $: outputWallets = get();
 
+    $: {
+        outputWallets.filter(walletHasStandardEventsFeature).map(subscribeToWalletEvents);
+    }
+
     // let installedUiWallets: UiWallet[] = [];
     $: installedUiWallets = outputWallets.map(wallet => getOrCreateUiWalletForStandardWallet_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(wallet));
 
     const walletsToChangeListenerDisposeFn = new Map<Wallet, () => void>();
 
-    $: disposeRegisterListener = on('register', (...wallets) => {
-        wallets.filter(walletHasStandardEventsFeature).map(subscribeToWalletEvents);
-    });
+    // $: disposeRegisterListener = on('register', (...wallets) => {
+    //     console.log('start subscribe register', wallets);
+    //     wallets.filter(walletHasStandardEventsFeature).map(subscribeToWalletEvents);
+    // });
 
-    $: disposeUnregisterListener = on('unregister', (...wallets) => {
-        wallets.forEach((wallet) => {
-            const dispose = walletsToChangeListenerDisposeFn.get(wallet);
-            if (!dispose) {
-                // Not all wallets will have a corresponding dispose function because they
-                // might not support `standard:events`.
-                return;
-            }
-            walletsToChangeListenerDisposeFn.delete(wallet);
-            dispose();
-        });
-    });
+    // $: disposeUnregisterListener = on('unregister', (...wallets) => {
+    //     wallets.forEach((wallet) => {
+    //         const dispose = walletsToChangeListenerDisposeFn.get(wallet);
+    //         if (!dispose) {
+    //             // Not all wallets will have a corresponding dispose function because they
+    //             // might not support `standard:events`.
+    //             return;
+    //         }
+    //         walletsToChangeListenerDisposeFn.delete(wallet);
+    //         dispose();
+    //     });
+    // });
 
     $: {
-        disposeRegisterListener();
-        disposeUnregisterListener();
-        walletsToChangeListenerDisposeFn.forEach((dispose) => dispose());
-        walletsToChangeListenerDisposeFn.clear();
+        console.log('start register');
+        // disposeRegisterListener();
+        // disposeUnregisterListener();
+        on('register', (...wallets) => {
+            console.log('start subscribe register', wallets);
+            wallets.filter(walletHasStandardEventsFeature).map(subscribeToWalletEvents);
+        });
+        console.log('registered');
+
+        on('unregister', (...wallets) => {
+            console.log('start unregister', wallets);
+            wallets.forEach((wallet) => {
+                const dispose = walletsToChangeListenerDisposeFn.get(wallet);
+                if (!dispose) {
+                    // Not all wallets will have a corresponding dispose function because they
+                    // might not support `standard:events`.
+                    return;
+                }
+                walletsToChangeListenerDisposeFn.delete(wallet);
+                dispose();
+            });
+        });
+        console.log('outputWallets', outputWallets);
+
+        console.log('installedWallets', installedUiWallets);
+        // walletsToChangeListenerDisposeFn.forEach((dispose) => dispose());
+        // walletsToChangeListenerDisposeFn.clear();
+        console.log('end register');
     }
 
     function walletHasStandardEventsFeature(wallet: Wallet): wallet is WalletWithFeatures<StandardEventsFeature> {
         return StandardEvents in wallet.features;
     }
     function subscribeToWalletEvents(wallet: WalletWithFeatures<StandardEventsFeature>): () => void {
-        const dispose = wallet.features[StandardEvents].on('change', () => {
-            outputWallets = get();
+        console.log('start subscribe change', wallet);
+        const dispose = wallet.features[StandardEvents].on('change', ({accounts}) => {
+            // outputWallets = get();
+            console.log('changed', outputWallets, accounts);
+            const newAccounts = accounts?.map(
+                getOrCreateUiWalletAccountForStandardWalletAccount_DO_NOT_USE_OR_YOU_WILL_BE_FIRED.bind(
+                    null,
+                    wallet
+                ));
+            console.log('new Accounts', newAccounts);
+            if (newAccounts && newAccounts.length > 0)
+                connectedWalletAccount = newAccounts[0];
         });
         walletsToChangeListenerDisposeFn.set(wallet, dispose);
         return dispose;
@@ -178,8 +217,8 @@
 
     
 
-    function copyAddress(address?: string) {
-        if (address ) navigator.clipboard.writeText(address);
+    function copyAddress(address: string) {
+        navigator.clipboard.writeText(address);
     }
 
     let connectedWallet: UiWallet | null = null;
@@ -195,6 +234,7 @@
         return underlyingWalletA === underlyingWalletB;
     }
     async function connectWallet(uiWallet: UiWallet) {
+        console.log('connect wallet', uiWallet);
         const wallet = getWalletForHandle_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(uiWallet);
 
         const existingAccounts = [...uiWallet.accounts];
@@ -217,6 +257,7 @@
                 ) as readonly UiWalletAccount[];
             });
         const nextAccounts = await accountsPromise;
+        console.log('next accounts', nextAccounts);
         connectedWallet = uiWallet;
 
         // Try to choose the first never-before-seen account.
