@@ -7,6 +7,7 @@
         getWalletForHandle_DO_NOT_USE_OR_YOU_WILL_BE_FIRED,
         getOrCreateUiWalletAccountForStandardWalletAccount_DO_NOT_USE_OR_YOU_WILL_BE_FIRED,
         getWalletAccountForUiWalletAccount_DO_NOT_USE_OR_YOU_WILL_BE_FIRED,
+        registerWalletHandle_DO_NOT_USE_OR_YOU_WILL_BE_FIRED,
     } from "@wallet-standard/ui-registry";
     import {
         getWalletFeature,
@@ -137,19 +138,23 @@
         for (const wallet of installedUiWallets) {
             if (wallet.name === savedWalletName) {
                 console.log("found cached wallet", wallet);
-                // TODO: localStorage cache doesn't work because wallet.accounts is []
-                for (const account of wallet.accounts) {
-                    if (account.address === savedAccountAddress) {
-                        connectedWalletAccount = account;
-                        console.log("found cached account", account);
-                        break;
-                    }
-                }
+                const mockWalletAccount = {
+                    address: savedAccountAddress,
+                    chains: wallet.chains,
+                    features: wallet.features,
+                    icon: wallet.icon,
+                    // publicKey: new Uint8Array([1,2,3]),
+                };
+                connectedWalletAccount = mockWalletAccount as UiWalletAccount;
+                connectedWallet = wallet;
+                break;
             }
         }
     }
 
     let connectedWalletAccount: UiWalletAccount | null = null;
+
+    let connectedWallet: UiWallet | null = null;
 
     function uiWalletAccountsAreSame(
         a: UiWalletAccount,
@@ -217,33 +222,33 @@
             );
             console.log("default accounts", connectedWalletAccount);
         }
+
+        connectedWallet = uiWallet;
     }
 
     async function disconnectWallet() {
-        if (!connectedWalletAccount) return;
-        const a = getWalletForHandle_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(
-            connectedWalletAccount,
-        );
-        console.log("wallet from walletAccount", a);
-        const b =
-            getOrCreateUiWalletForStandardWallet_DO_NOT_USE_OR_YOU_WILL_BE_FIRED(
-                a,
-            );
-        console.log("ui wallet from wallet", b);
+        localStorage.removeItem(STORAGE_KEY);
 
+        if (!connectedWalletAccount) return;
+        if (!connectedWallet) return;
         const disconnectFeature = getWalletFeature(
-            b,
+            connectedWallet,
             StandardDisconnect,
         ) as StandardDisconnectFeature[typeof StandardDisconnect];
         await disconnectFeature.disconnect();
         connectedWalletAccount = null;
-        localStorage.removeItem(STORAGE_KEY);
     }
 
     async function handleTransfer() {
         // ensure account exists
         console.log("handle transfer", connectedWalletAccount);
         if (!connectedWalletAccount) return;
+
+        if (connectedWallet && !connectedWallet.accounts.includes(connectedWalletAccount)) {
+            await connectWallet(connectedWallet);
+            console.log('connected from local storage');
+            // return;
+        }
 
         const receiver = address(
             "FDjn87xPsLiXwakFygi4uEdet568o7A22UboxrUCwu7A",
@@ -263,6 +268,7 @@
             installedUiWallets,
             connectedWalletAccount,
         );
+        // TODO: 从localstorage 恢复的还是从connect获取到的
         const signAndSendTransactionFeature = getWalletAccountFeature(
             connectedWalletAccount,
             SolanaSignAndSendTransaction,
@@ -333,6 +339,7 @@
                     m,
                 ),
         );
+        console.log('before send tx', message);
         const signature =
             await signAndSendTransactionMessageWithSigners(message);
         console.log("tx signature", signature);
